@@ -1,6 +1,6 @@
 # WinUI3_PinToTaskbar
 
-Test Pin/Unpin to taskbar with IPinManagerInterop, [IStartMenuPinnedList](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl/nn-shobjidl-istartmenupinnedlist), IPinnedList3
+Test Pin/Unpin to taskbar with IPinManagerInterop, IPinnedList3, [IStartMenuPinnedList](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl/nn-shobjidl-istartmenupinnedlist)
 
  Tested on Windows 10 22H2, Windows App SDK 1.6.241114003
 
