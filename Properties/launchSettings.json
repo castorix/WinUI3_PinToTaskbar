@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "WinUI3_PinToTaskbar (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "WinUI3_PinToTaskbar (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
