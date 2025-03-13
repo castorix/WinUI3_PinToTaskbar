@@ -4,6 +4,12 @@ Test Pin/Unpin to taskbar with IPinManagerInterop, IPinnedList3, [IStartMenuPinn
 
  Tested on Windows 10 22H2, Windows App SDK 1.6.241114003
 
- From https://github.com/microsoft/WindowsAppSDK/issues/3917#issuecomment-2696821712, it does not work on Windows 11
+ From https://github.com/microsoft/WindowsAppSDK/issues/3917#issuecomment-2696821712, COM interfaces do not work on Windows 11
 
- ![image](https://github.com/user-attachments/assets/3a23eda5-0ab4-4d6e-bf90-73ad308eb18a)
+ So I added another method with a [WH_GETMESSAGE Hook](https://learn.microsoft.com/en-us/windows/win32/winmsg/about-hooks#wh_getmessage)
+ to execute "Pin to Taskbar" context menu in Explorer address space.
+ 
+ The original idea comes from [SysPin](https://www.technosys.net/products/utils/pintotaskbar), which calls WriteProcessMemory
+
+ ![image](https://github.com/user-attachments/assets/4f20fc87-ff03-4603-b42f-b71191488744)
+
