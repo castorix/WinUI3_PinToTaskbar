@@ -35,6 +35,11 @@ using System.ComponentModel;
 using Windows.ApplicationModel.DataTransfer;
 using Shell32;
 using System.Xml;
+using static System.Net.WebRequestMethods;
+using System.Reflection;
+using Microsoft.Win32.SafeHandles;
+using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Reflection.Metadata;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -191,6 +196,53 @@ namespace WinUI3_PinToTaskbar
         [DllImport("Comctl32.dll", SetLastError = true)]
         public static extern int DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
+        [DllImport("User32.dll", SetLastError = true)]
+        public static extern IntPtr GetShellWindow();
+
+        [DllImport("User32.dll", SetLastError = true)]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true)]
+        public static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr LoadLibrary(string lpLibFileName);
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr CreateFileMapping(IntPtr hFile, IntPtr lpFileMappingAttributes, uint flProtect, uint dwMaximumSizeHigh, uint dwMaximumSizeLow, string lpName);
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern IntPtr MapViewOfFile(IntPtr hFileMappingObject, uint dwDesiredAccess, uint dwFileOffsetHigh, uint dwFileOffsetLow, int dwNumberOfBytesToMap);
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool UnmapViewOfFile(IntPtr lpBaseAddress);
+
+        [DllImport("Kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        public const int INVALID_HANDLE_VALUE = -1;
+
+        public const int SECTION_QUERY = 0x0001;
+        public const int SECTION_MAP_WRITE = 0x0002;
+        public const int SECTION_MAP_READ = 0x0004;
+        public const int SECTION_MAP_EXECUTE = 0x0008;
+        public const int SECTION_EXTEND_SIZE = 0x0010;
+        public const int SECTION_MAP_EXECUTE_EXPLICIT = 0x0020; // not included in SECTION_ALL_ACCESS
+
+        public const int STANDARD_RIGHTS_REQUIRED = 0x000F0000;
+        public const int SECTION_ALL_ACCESS = (STANDARD_RIGHTS_REQUIRED | SECTION_QUERY | SECTION_MAP_WRITE | SECTION_MAP_READ |
+            SECTION_MAP_EXECUTE | SECTION_EXTEND_SIZE);
+        public const int FILE_MAP_WRITE = SECTION_MAP_WRITE;
+        public const int FILE_MAP_READ = SECTION_MAP_READ;
+        public const int FILE_MAP_ALL_ACCESS = SECTION_ALL_ACCESS;
+
+        public const int PAGE_NOACCESS = 0x01;
+        public const int PAGE_READONLY = 0x02;
+        public const int PAGE_READWRITE = 0x04;
+
+        [DllImport("User32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        public static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
 
         IPinManagerInterop? m_pPMI = null;
         IStartMenuPinnedList? m_pSMPL = null;
@@ -198,12 +250,16 @@ namespace WinUI3_PinToTaskbar
 
         private SUBCLASSPROC? SubClassDelegate;
         public const int WM_USER = 0x0400;
-        public const int WM_SHELLNOTIFY  = WM_USER + 100;
+        private const int WM_SHELLNOTIFY  = WM_USER + 100;
+        private const int WM_PINMESSAGE = WM_USER + 10;
+        private const int WM_PINNOTIFY = WM_USER + 11;
 
         private IntPtr hWndMain = IntPtr.Zero;
 
         ObservableCollection<PinnedItem> pinnedItems = new ObservableCollection<PinnedItem>();
         public Windows.Media.Playback.MediaPlayer m_mp = new Windows.Media.Playback.MediaPlayer();
+        private Windows.Media.Core.MediaSource m_UnpinSource;
+        private Windows.Media.Core.MediaSource m_PinSource;
 
         public MainWindow()
         {
@@ -237,7 +293,7 @@ namespace WinUI3_PinToTaskbar
             uint nNotify = SHChangeNotifyRegister(hWndMain, SHCNRF_NewDelivery | SHCNRF_ShellLevel, SHCNE_EXTENDED_EVENT, WM_SHELLNOTIFY, 1, ref cne);
 
             EnumPinnedItems();
-            LoadMP3("Assets\\Unpin.mp3");
+            LoadMP3s();
             string? sExeName = Environment.ProcessPath;
             tbFile.Text = sExeName;            
 
@@ -248,7 +304,11 @@ namespace WinUI3_PinToTaskbar
         {
             SafeRelease(ref m_pPMI);
             SafeRelease(ref m_pSMPL);
-            //SafeRelease(ref m_clsTB);          
+            //SafeRelease(ref m_clsTB);
+            if (m_bHookInstalled)
+            {
+                InstallHook(false, 0);
+            }
         }
 
         private async void Quit(System.Exception ex)
@@ -260,12 +320,32 @@ namespace WinUI3_PinToTaskbar
             Application.Current.Exit();
         }
 
-        private async void LoadMP3(string sRelativePath)
+        private async void LoadMP3s()
         {
-            string sAbsolutePath = Path.Combine(AppContext.BaseDirectory, sRelativePath);
-            StorageFile sfFile = await StorageFile.GetFileFromPathAsync(sAbsolutePath);
-            m_mp.Source = Windows.Media.Core.MediaSource.CreateFromStorageFile(sfFile);
+            await PreloadMP3s();
         }
+
+        private async Task PreloadMP3s()
+        {
+            string basePath = AppContext.BaseDirectory;
+            StorageFile unpinFile = await StorageFile.GetFileFromPathAsync(Path.Combine(basePath, "Assets\\Unpin.mp3"));
+            StorageFile pinFile = await StorageFile.GetFileFromPathAsync(Path.Combine(basePath, "Assets\\Pin.mp3"));
+            m_UnpinSource = Windows.Media.Core.MediaSource.CreateFromStorageFile(unpinFile);
+            m_PinSource = Windows.Media.Core.MediaSource.CreateFromStorageFile(pinFile);
+        }
+
+        private void PlayUnpin()
+        {
+            m_mp.Source = m_UnpinSource;
+            m_mp.Play();
+        }
+
+        private void PlayPin()
+        {
+            m_mp.Source = m_PinSource;
+            m_mp.Play();
+        }
+
 
         private async void EnumPinnedItems()
         {
@@ -553,7 +633,7 @@ namespace WinUI3_PinToTaskbar
                     {
                         hr = m_pSMPL.RemoveFromList(pShellItem);
                         if (hr == HRESULT.S_OK)
-                            m_mp.Play();
+                            PlayUnpin();
                     }
                     SafeRelease(ref pShellItem);
                 }
@@ -567,7 +647,7 @@ namespace WinUI3_PinToTaskbar
                         {
                             hr = m_pSMPL.RemoveFromList(pShellItem);
                             if (hr == HRESULT.S_OK)
-                                m_mp.Play();
+                                PlayUnpin();
                         }
                         SafeRelease(ref pShellItem);
                     }
@@ -585,7 +665,7 @@ namespace WinUI3_PinToTaskbar
                                 {
                                     hr = m_pSMPL.RemoveFromList(pShellItem);
                                     if (hr == HRESULT.S_OK)
-                                        m_mp.Play();
+                                        PlayUnpin();
                                 }
                                 SafeRelease(ref pShellItem);
                             }
@@ -609,6 +689,135 @@ namespace WinUI3_PinToTaskbar
                     }
                 }
             }         
+        }
+
+        public static uint GetExplorerThreadId()
+        {
+            uint nExplorerPID = 0;
+            uint nExplorerTID = 0;
+
+            IntPtr hShellWindow = GetShellWindow();
+            if (hShellWindow != IntPtr.Zero)
+            {
+                GetWindowThreadProcessId(hShellWindow, out nExplorerPID);
+            }
+            if (nExplorerPID == 0)
+            {
+                //Debug.WriteLine("Failed to get Explorer process ID.");
+                return 0;
+            }
+            
+            try
+            {
+                Process explorerProcess = Process.GetProcessById((int)nExplorerPID);
+                ProcessThreadCollection threads = explorerProcess.Threads;
+                if (threads.Count > 0)
+                {
+                    // Return the first thread ID found
+                    nExplorerTID = (uint)threads[0].Id;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error accessing Explorer process: " + ex.Message);
+            }
+            return nExplorerTID;
+        }
+
+        private bool m_bHookInstalled = false;
+        internal delegate bool SetHookDelegate(bool bInstall, uint dwThreadId);        
+
+        bool InstallHook(bool bInstall, uint dwThreadId)
+        {
+            bool bRet = false;
+            IntPtr hDll = LoadLibrary("Pin.dll");
+            if (hDll != IntPtr.Zero)
+            {
+                IntPtr pFunc = GetProcAddress(hDll, "SetHook");
+                if (pFunc != IntPtr.Zero)
+                {                   
+                    SetHookDelegate pSetHook = (SetHookDelegate)System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointer(pFunc, typeof(SetHookDelegate));
+                    if (pSetHook != null)
+                    {
+                        try
+                        {
+                            bRet = pSetHook(bInstall, dwThreadId);
+                        }
+                        catch
+                        {
+                            // error
+                        }                        
+                    }
+                }
+                else
+                {
+                    // 127 ERROR_PROC_NOT_FOUND
+                    int nError = Marshal.GetLastWin32Error();
+                    bRet = false;
+                }
+            }
+            return bRet;
+        }
+
+        private async void btnPinHook_Click(object sender, RoutedEventArgs e)
+        {
+            uint nExplorerThreadId = GetExplorerThreadId();
+            if (!m_bHookInstalled)
+            {               
+                m_bHookInstalled = InstallHook(true, nExplorerThreadId);
+                if (!m_bHookInstalled)
+                {
+                    int nError = Marshal.GetLastWin32Error();
+                    string sErrorMessage = "Could not install Hook\r\n";
+                    sErrorMessage += $"Error Code: 0x{nError:X8}\n";
+                    string sExceptionMessage = new Win32Exception(nError).Message;
+                    if (sExceptionMessage is not null && sExceptionMessage != "")
+                    {
+                        sErrorMessage += $"Description: {sExceptionMessage}";
+                    }
+                    else
+                    {
+                        sErrorMessage += "Description: Unknown error";
+                    }
+                    Windows.UI.Popups.MessageDialog md = new Windows.UI.Popups.MessageDialog(sErrorMessage, "Error");
+                    WinRT.Interop.InitializeWithWindow.Initialize(md, hWndMain);
+                    _ = await md.ShowAsync();
+                }
+            }
+            if (m_bHookInstalled)
+            {
+                IntPtr hMapFile = CreateFileMapping((IntPtr)INVALID_HANDLE_VALUE, IntPtr.Zero, PAGE_READWRITE, 0, 1024, "PinSharedMemory");
+                if (hMapFile != IntPtr.Zero)
+                {
+                    IntPtr pSharedData = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+                    if (pSharedData != IntPtr.Zero)
+                    {
+                        string? sExeName = tbFile.Text;
+                        var sData = sExeName + '\0'; // Null-terminated like WCHAR*
+                        byte[] bytes = System.Text.Encoding.Unicode.GetBytes(sData);
+                        Marshal.Copy(bytes, 0, pSharedData, bytes.Length);
+                        PostThreadMessage(nExplorerThreadId, WM_PINMESSAGE, 0, hWndMain);
+                    }
+                }
+                else                
+                {
+                    int nError = Marshal.GetLastWin32Error();
+                    string sErrorMessage = "CreateFileMapping failed !\r\n";
+                    sErrorMessage += $"Error Code: 0x{nError:X8}\n";
+                    string sExceptionMessage = new Win32Exception(nError).Message;
+                    if (sExceptionMessage is not null && sExceptionMessage != "")
+                    {
+                        sErrorMessage += $"Description: {sExceptionMessage}";
+                    }
+                    else
+                    {
+                        sErrorMessage += "Description: Unknown error";
+                    }
+                    Windows.UI.Popups.MessageDialog md = new Windows.UI.Popups.MessageDialog(sErrorMessage, "Error");
+                    WinRT.Interop.InitializeWithWindow.Initialize(md, hWndMain);
+                    _ = await md.ShowAsync();
+                }
+            }
         }
 
         private void CopyLinkTarget_Click(object sender, RoutedEventArgs e)
@@ -713,9 +922,20 @@ namespace WinUI3_PinToTaskbar
                         }
                     }
                     break;
+                case WM_PINNOTIFY:
+                    {
+                        if (lParam == (IntPtr)HRESULT.S_OK)
+                        {
+                            if (wParam == (IntPtr)1)
+                                PlayPin();
+                            else if (wParam == (IntPtr)2)
+                                PlayUnpin();
+                        }
+                    }
+                    break;
             }
             return DefSubclassProc(hWnd, uMsg, wParam, lParam);
-        } 
+        }
     }
 
     public class SelectionToBoolConverter : IValueConverter

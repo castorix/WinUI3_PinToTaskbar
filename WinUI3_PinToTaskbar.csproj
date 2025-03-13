@@ -13,6 +13,7 @@
     <Nullable>enable</Nullable>
   <WindowsPackageType>None</WindowsPackageType>
   </PropertyGroup>
+
   <ItemGroup>
     <COMReference Include="Shell32">
       <WrapperTool>tlbimp</WrapperTool>
@@ -69,4 +70,26 @@
     <PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
     <ApplicationIcon>Assets\Pin.ico</ApplicationIcon>
   </PropertyGroup>
+
+ <Target Name="CopyPinDll" AfterTargets="Build">
+    <Copy SourceFiles="$(SolutionDir)$(Configuration)\Pin.dll" DestinationFolder="$(OutputPath)" />
+  </Target>
+	
+<!--<PropertyGroup>
+  <CustomOutputDir>$(OutputPath)</CustomOutputDir>
+</PropertyGroup>
+
+	<ItemGroup>
+    <ProjectReference Include="..\Pin\Pin.vcxproj">
+      --><!-- Pass the custom output dir to the C++ DLL --><!--
+      <Properties>OutDir=$(CustomOutputDir)</Properties>
+    </ProjectReference>
+  </ItemGroup>-->
+
+	<!--For "built-in com has been disabled via a feature" in Release-->
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<PublishTrimmed>false</PublishTrimmed>
+		<PublishAot>false</PublishAot>
+	</PropertyGroup>
+
 </Project>

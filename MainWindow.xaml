@@ -31,6 +31,7 @@
         <StackPanel Orientation="Horizontal" Grid.Column="0" Grid.Row="0" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10, 0, 0, 0">
             <Button x:Name="btnPinPinManager" Click="btnPinPinManager_Click" Background="MidnightBlue" >Pin with PinManager</Button>
             <Button x:Name="btnPinPinnedList" Click="btnPinPinnedList_Click" Background="MidnightBlue">Pin with PinnedList</Button>
+            <Button x:Name="btnPinHook" Click="btnPinHook_Click"  Background="MidnightBlue">Pin/Unpin with Hook</Button>
             <Button x:Name="btnBrowse" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="5, 0, 0, 0" Width="36" Height="34"
                     Click="btnBrowse_Click" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                     FontFamily="Segoe UI Emoji" FontSize="26" Content="&#x1F4C1;" Padding="0, -5, 0, 0" >

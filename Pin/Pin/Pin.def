@@ -1,0 +1,6 @@
+LIBRARY "Pin"
+EXPORTS
+	SetHook
+	Test
+SECTIONS
+    Shared   READ WRITE SHARED
